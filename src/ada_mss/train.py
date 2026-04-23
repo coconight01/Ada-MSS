@@ -1,8 +1,15 @@
-from .pipeline import AdaMSSPipeline
+"""Training placeholder.
+
+Proposal ideas that require heavy infra (not reproduced yet):
+- joint retriever + generator end-to-end optimization
+- online adaptation with continual user feedback
+"""
+
+from __future__ import annotations
 
 
-def train_stub(train_lines: list[str]) -> dict:
-    """Training entry scaffold (currently runs baseline inference for sanity check)."""
-    pipeline = AdaMSSPipeline()
-    outputs = pipeline.run(train_lines)
-    return {"num_samples": len(outputs), "status": "scaffold_ready"}
+def train_stub() -> dict:
+    return {
+        "status": "not_implemented",
+        "reason": "proposal-level training design requires dedicated dataset and GPU training infra",
+    }

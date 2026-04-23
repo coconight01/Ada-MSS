@@ -2,9 +2,9 @@ from ada_mss.infer import predict
 
 
 if __name__ == "__main__":
-    demo = [
-        "This is a concise project summary.",
-        "This line is intentionally much longer to trigger a different confidence score in the baseline model.",
-    ]
-    for item in predict(demo):
-        print(item)
+    result = predict(
+        config_path="configs/default.json",
+        kb_path="data/sample_kb.jsonl",
+        query="How does Ada-MSS control cost while keeping answer quality?",
+    )
+    print(result)

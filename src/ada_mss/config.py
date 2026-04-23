@@ -1,42 +1,45 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import json
 
 
 @dataclass
-class DataConfig:
-    input_path: str = "data/raw"
-    cache_path: str = "data/cache"
+class ProviderConfig:
+    name: str
+    base_url: str
+    model: str
+    api_key_env: str
+    input_cost_per_1k: float
+    output_cost_per_1k: float
+    enabled: bool = True
 
 
 @dataclass
-class ModelConfig:
-    encoder_name: str = "sentence-transformers/all-MiniLM-L6-v2"
-    hidden_size: int = 384
+class RetrievalConfig:
+    top_k: int = 4
+    min_keyword_overlap: int = 1
 
 
 @dataclass
-class TrainConfig:
-    batch_size: int = 16
-    epochs: int = 5
-    learning_rate: float = 1e-4
+class PipelineConfig:
+    max_context_chars: int = 6000
+    fallback_to_template: bool = True
 
 
 @dataclass
 class AppConfig:
     project_name: str = "Ada-MSS"
-    task_name: str = "proposal-aligned baseline"
-    data: DataConfig = DataConfig()
-    model: ModelConfig = ModelConfig()
-    train: TrainConfig = TrainConfig()
+    providers: list[ProviderConfig] = field(default_factory=list)
+    retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
+    pipeline: PipelineConfig = field(default_factory=PipelineConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    providers = [ProviderConfig(**item) for item in payload.get("providers", [])]
     return AppConfig(
         project_name=payload.get("project_name", "Ada-MSS"),
-        task_name=payload.get("task_name", "proposal-aligned baseline"),
-        data=DataConfig(**payload.get("data", {})),
-        model=ModelConfig(**payload.get("model", {})),
-        train=TrainConfig(**payload.get("train", {})),
+        providers=providers,
+        retrieval=RetrievalConfig(**payload.get("retrieval", {})),
+        pipeline=PipelineConfig(**payload.get("pipeline", {})),
     )
