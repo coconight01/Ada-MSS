@@ -2,77 +2,79 @@
 
 ## Recommended Datasets
 
-为贴合你 proposal 的“Buggy Code + Tests -> Repair -> Validation”流程，我建议分两层：
+为贴合 proposal 的“Buggy Code + Tests -> Repair -> Validation”流程，建议：
 
-1. **首选：SWE-bench Lite（Python）**
-   - 优点：真实仓库 issue + 测试驱动修复任务，和图里的验证闭环最一致。
-   - 用途：主评测集（端到端修复成功率）。
-
-2. **补充：QuixBugs（Python 子集）**
-   - 优点：轻量、上手快，适合快速验证 pruning / escalation 策略。
-   - 用途：开发期 smoke benchmark。
-
-> Defects4J 也很经典，但主要是 Java，若你这版先走 Python 管线，SWE-bench Lite + QuixBugs 更顺手。
+1. **主评测：SWE-bench Lite（Python）**
+2. **开发回归：QuixBugs（Python）**
 
 ---
 
-## Directory Layout
+## Ada-MSS Task Format
 
-```text
-data/
-├── raw/
-│   ├── swe_bench_lite/
-│   └── quixbugs/
-└── processed/
-    └── repair_tasks.jsonl
-```
-
-`repair_tasks.jsonl` target schema:
+每条任务统一转成 JSONL：
 
 ```json
 {"task_id":"repo__issue_x","buggy_code":"...","tests":"..."}
 ```
 
+字段说明：
+- `task_id`: 唯一 ID
+- `buggy_code`: 有缺陷的源代码（字符串）
+- `tests`: 可执行测试代码（至少包含一个 `test_*` 函数）
+
 ---
 
-## Minimal Deployment Steps
+## End-to-end Commands
 
-### 1) Prepare folders
+### 0) 先跑内置 demo 数据集（无需下载）
 
 ```bash
-mkdir -p data/raw/swe_bench_lite data/raw/quixbugs data/processed
+PYTHONPATH=src python scripts/run_benchmark.py
 ```
 
-### 2) Download datasets (example)
+### 1) 准备目录
 
 ```bash
-# SWE-bench Lite (from Hugging Face datasets)
+mkdir -p data/raw data/processed
+```
+
+### 2) 下载数据（示例）
+
+```bash
 python - <<'PY'
 from datasets import load_dataset
 
 ds = load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
-print(ds[0].keys())
 print("rows:", len(ds))
+print(ds[0].keys())
 PY
 ```
 
+### 3) 转换成 Ada-MSS 格式
+
+如果你已经有中间 JSONL（字段含 `id`/`task_id`, `buggy_code`, `tests`），可直接：
+
 ```bash
-# QuixBugs (Python)
-git clone https://github.com/jkoppel/QuixBugs.git data/raw/quixbugs
+python scripts/prepare_dataset.py \
+  --input data/raw/your_source.jsonl \
+  --output data/processed/repair_tasks.jsonl
 ```
 
-### 3) Convert to Ada-MSS task format
+### 4) 运行批量评测
 
-把每条样本转为：
-- `task_id`
-- `buggy_code`
-- `tests`
+```bash
+PYTHONPATH=src python - <<'PY'
+from ada_mss.benchmark import run_benchmark
 
-输出到 `data/processed/repair_tasks.jsonl`，供 `TaskDataset.from_jsonl(...)` 读取。
+summary = run_benchmark("configs/default.json", "data/processed/repair_tasks.jsonl")
+print(summary)
+PY
+```
 
 ---
 
 ## Notes
 
-- 由于体积和许可证原因，本仓库不直接提交完整数据集。
-- 建议先用 QuixBugs 做 20~50 条小规模回归，再上 SWE-bench Lite 全量评测。
+- 本仓库内置 `data/processed/repair_tasks_demo.jsonl` 用于快速验证流程。
+- 真实修复能力取决于 LLM 服务是否可用（本地 vLLM 或远端 API）。
+- 当 LLM 不可用时，会走 template fallback，主要用于流程联调而非最终效果评估。
