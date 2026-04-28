@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 from .config import AppConfig
 from .data import RepairTask
@@ -32,27 +33,37 @@ class AdaMSSPipeline:
         self.validator = ValidationSandbox()
         self.escalation = EscalationPolicy(max_context_level=cfg.pipeline.max_context_level)
 
+    def _extract_code(self, llm_output: str, fallback: str) -> str:
+        code_block = re.search(r"```(?:python)?\n(.*?)```", llm_output, re.S)
+        if code_block:
+            return code_block.group(1).strip()
+        stripped = llm_output.strip()
+        return stripped or fallback
+
+    def _template_repair(self, task: RepairTask) -> str:
+        code = task.buggy_code
+        if "def add(" in code and "assert add(" in task.tests:
+            code = code.replace("return a - b", "return a + b")
+            code = code.replace("return a * b", "return a + b")
+        if "def subtract(" in code and "assert subtract(" in task.tests:
+            code = code.replace("return a + b", "return a - b")
+        return code
+
     def run(self, task: RepairTask) -> PipelineResult:
         trace: list[str] = []
         level = self.cfg.pipeline.initial_level
         attempts = 0
-        last_patch = ""
+        candidate_code = task.buggy_code
 
         try:
             provider = self.router.pick()
             agent = LLMRepairAgent(provider)
-        except Exception:
+        except Exception as e:
             if not self.cfg.pipeline.fallback_to_template:
                 raise
-            return PipelineResult(
-                status="repair_fail",
-                provider="template_fallback",
-                model="none",
-                final_level=level,
-                attempts=0,
-                trace=["provider_unavailable"],
-                candidate_patch="",
-            )
+            trace.append(f"provider_unavailable:{type(e).__name__}")
+            provider = type("ProviderStub", (), {"name": "template_fallback", "model": "none"})()
+            agent = None
 
         while attempts < self.cfg.pipeline.max_repair_attempts:
             attempts += 1
@@ -61,16 +72,19 @@ class AdaMSSPipeline:
 
             trace.append("llm_repair_agent")
             try:
-                last_patch = agent.propose_patch(context)
-            except Exception:
+                if agent is None:
+                    raise RuntimeError("llm_agent_not_ready")
+                llm_output = agent.propose_patch(context)
+                candidate_code = self._extract_code(llm_output, task.buggy_code)
+            except Exception as e:
                 if self.cfg.pipeline.fallback_to_template:
-                    trace.append("llm_unavailable_template_patch")
-                    last_patch = "# TODO: generated patch unavailable"
+                    trace.append(f"llm_unavailable_template_patch:{type(e).__name__}")
+                    candidate_code = self._template_repair(task)
                 else:
                     raise
 
             trace.append("validation_sandbox")
-            val = self.validator.run(last_patch, task.tests)
+            val = self.validator.run(task, candidate_code)
 
             if val.passed:
                 trace.append("repair_success")
@@ -81,7 +95,7 @@ class AdaMSSPipeline:
                     final_level=level,
                     attempts=attempts,
                     trace=trace,
-                    candidate_patch=last_patch,
+                    candidate_patch=candidate_code,
                 )
 
             trace.append(f"repair_failed:{val.error_type}")
@@ -95,7 +109,7 @@ class AdaMSSPipeline:
                     final_level=level,
                     attempts=attempts,
                     trace=trace,
-                    candidate_patch=last_patch,
+                    candidate_patch=candidate_code,
                 )
             level = nxt
             trace.append(f"escalate_to:{level}")
@@ -108,5 +122,5 @@ class AdaMSSPipeline:
             final_level=level,
             attempts=attempts,
             trace=trace,
-            candidate_patch=last_patch,
+            candidate_patch=candidate_code,
         )

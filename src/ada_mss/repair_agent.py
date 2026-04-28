@@ -12,12 +12,12 @@ class LLMRepairAgent:
 
     def propose_patch(self, context: PrunedContext) -> str:
         system_prompt = (
-            "You are a code repair agent. Return only a compact patch-like suggestion "
-            "that can help tests pass."
+            "You are a code repair agent. Output ONLY the full repaired Python code. "
+            "No markdown, no explanation."
         )
         user_prompt = (
             f"Pruning level: {context.level}\n"
-            "Given buggy code + tests context below, generate candidate fix patch.\n\n"
+            "Given buggy code + tests context below, generate repaired code that passes tests.\n\n"
             f"{context.content}"
         )
         return self.client.generate(user_prompt, system_prompt).content
